@@ -14,34 +14,27 @@ const client = new Client({
 });
 
 // ══════════════════════════════════════════
-//   FONCTION : Mettre à jour le statut
+//   ALTERNANCE DU STATUT
 // ══════════════════════════════════════════
+let statusIndex = 0;
+
 function updateStatus() {
   const guild = client.guilds.cache.get(GUILD_ID);
-  if (!guild) return;
+  const memberCount = guild ? guild.memberCount : '...';
 
-  const memberCount = guild.memberCount;
+  const statuses = [
+    {
+      activities: [{ name: 'Topia FR RP', type: ActivityType.Playing }],
+      status: 'online',
+    },
+    {
+      activities: [{ name: '👥 Nombres de Membre sur Topia : ' + memberCount, type: ActivityType.Custom, state: '👥 Nombres de Membre sur Topia : ' + memberCount }],
+      status: 'online',
+    },
+  ];
 
-  // Activité : "Ecoute Topia FR RP"
-  client.user.setActivity('Topia FR RP', { type: ActivityType.Playing });
-
-  // Note (status custom) : "👥 Nombres de Membre sur Topia : X"
-  client.user.setPresence({
-    activities: [
-      {
-        name: 'Topia FR RP',
-        type: ActivityType.Playing,
-      },
-      {
-        name: '👥 Nombres de Membre sur Topia : ' + memberCount,
-        type: ActivityType.Custom,
-        state: '👥 Nombres de Membre sur Topia : ' + memberCount,
-      },
-    ],
-    status: 'online',
-  });
-
-  console.log('🔄 Statut mis à jour — Membres : ' + memberCount);
+  client.user.setPresence(statuses[statusIndex]);
+  statusIndex = (statusIndex + 1) % statuses.length;
 }
 
 // ══════════════════════════════════════════
@@ -53,13 +46,9 @@ client.once('ready', () => {
   // Mise à jour immédiate
   updateStatus();
 
-  // Mise à jour toutes les 5 minutes
-  setInterval(updateStatus, 5 * 60 * 1000);
+  // Alternance toutes les 10 secondes
+  setInterval(updateStatus, 10 * 1000);
 });
-
-// Mise à jour quand quelqu'un rejoint ou quitte
-client.on('guildMemberAdd', () => updateStatus());
-client.on('guildMemberRemove', () => updateStatus());
 
 client.on('error', (e) => console.error('❌ ' + e.message));
 process.on('unhandledRejection', (r) => console.error('❌ ' + r));
