@@ -14,27 +14,28 @@ const client = new Client({
 });
 
 // ══════════════════════════════════════════
-//   ALTERNANCE DU STATUT
+//   FONCTION : Mettre à jour le statut
 // ══════════════════════════════════════════
-let statusIndex = 0;
-
 function updateStatus() {
   const guild = client.guilds.cache.get(GUILD_ID);
   const memberCount = guild ? guild.memberCount : '...';
 
-  const statuses = [
-    {
-      activities: [{ name: 'Topia FR RP', type: ActivityType.Playing }],
-      status: 'online',
-    },
-    {
-      activities: [{ name: '👥 Nombres de Membre sur Topia : ' + memberCount, type: ActivityType.Custom, state: '👥 Nombres de Membre sur Topia : ' + memberCount }],
-      status: 'online',
-    },
-  ];
+  client.user.setPresence({
+    activities: [
+      {
+        name: 'Joue à Topia FR RP',
+        type: ActivityType.Playing,
+      },
+      {
+        type: ActivityType.Custom,
+        name: 'custom',
+        state: '👥 Nombres de Membre sur Topia : ' + memberCount,
+      },
+    ],
+    status: 'online',
+  });
 
-  client.user.setPresence(statuses[statusIndex]);
-  statusIndex = (statusIndex + 1) % statuses.length;
+  console.log('🔄 Statut mis à jour — Membres : ' + memberCount);
 }
 
 // ══════════════════════════════════════════
@@ -42,13 +43,12 @@ function updateStatus() {
 // ══════════════════════════════════════════
 client.once('ready', () => {
   console.log('✅ [STATUS] Bot connecté en tant que : ' + client.user.tag);
-
-  // Mise à jour immédiate
   updateStatus();
-
-  // Alternance toutes les 10 secondes
-  setInterval(updateStatus, 10 * 1000);
+  setInterval(updateStatus, 5 * 60 * 1000);
 });
+
+client.on('guildMemberAdd', () => updateStatus());
+client.on('guildMemberRemove', () => updateStatus());
 
 client.on('error', (e) => console.error('❌ ' + e.message));
 process.on('unhandledRejection', (r) => console.error('❌ ' + r));
