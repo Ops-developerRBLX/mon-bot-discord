@@ -21,6 +21,7 @@ const ROLES_STAFF = [
   '1432472817349431365',
   '1474093816398221463',
   '1474093820785332458',
+  '1474133714391793784',
 ];
 
 const ROLES_TRANSFER = [
@@ -30,6 +31,7 @@ const ROLES_TRANSFER = [
   '1432472817349431365',
   '1474093816398221463',
   '1474093820785332458',
+  '1474133714391793784',
 ];
 
 const TICKET_TYPES = {
@@ -369,6 +371,14 @@ client.on('interactionCreate', async function(interaction) {
   if (customId === 'close_ticket') {
     const data = ticketData[interaction.channel.id];
     if (!data) return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
+
+    const canClose = 
+      (data.claimedBy && data.claimedBy === member.id) ||
+      ROLES_TRANSFER.some(r => member.roles.cache.has(r));
+
+    if (!canClose) {
+      return interaction.reply({ content: '❌ Seul le staff ayant les permissions ou la personne ayant réclamé ce ticket peut le fermer !', ephemeral: true });
+    }
 
     await interaction.reply({ content: '🔒 Fermeture du ticket en cours...' });
 
