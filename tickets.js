@@ -95,6 +95,42 @@ const TICKET_TYPES_MOD = {
 // ── Fusion des deux pour la résolution rapide par type ──
 const ALL_TICKET_TYPES = { ...TICKET_TYPES_SUPPORT, ...TICKET_TYPES_MOD };
 
+// ══════════════════════════════════════════
+//   PERSISTANCE (fichier JSON)
+// ══════════════════════════════════════════
+const fs   = require('fs');
+const path = require('path');
+const SAVE_FILE = path.join(__dirname, 'ticketData.json');
+
+function saveData() {
+  // On ne sauvegarde pas les timers (non sérialisables)
+  const toSave = {
+    ticketCounters,
+    ticketData: Object.fromEntries(
+      Object.entries(ticketData).map(([k, v]) => [k, { ...v, timers: [] }])
+    ),
+    userTickets,
+    userTicketsMod,
+  };
+  fs.writeFileSync(SAVE_FILE, JSON.stringify(toSave, null, 2), 'utf-8');
+}
+
+function loadData() {
+  if (!fs.existsSync(SAVE_FILE)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(SAVE_FILE, 'utf-8'));
+    if (raw.ticketCounters) Object.assign(ticketCounters, raw.ticketCounters);
+    if (raw.ticketData)     Object.assign(ticketData,    raw.ticketData);
+    if (raw.userTickets)    Object.assign(userTickets,   raw.userTickets);
+    if (raw.userTicketsMod) Object.assign(userTicketsMod,raw.userTicketsMod);
+    // Réinitialise les timers (tableaux vides après chargement)
+    for (const d of Object.values(ticketData)) d.timers = [];
+    console.log('💾 Données restaurées depuis ticketData.json');
+  } catch (e) {
+    console.error('❌ Erreur chargement save:', e.message);
+  }
+}
+
 // ── Compteurs ──
 const ticketCounters = {
   verif: 0, unban: 0, question: 0, signal: 0, autre: 0,
@@ -112,6 +148,9 @@ const userTicketsMod = {};
 
 // userId -> channelId (en attente de mention pour transfert)
 const pendingTransfer = {};
+
+// Charge les données persistées dès le démarrage
+loadData();
 
 // ══════════════════════════════════════════
 //   CLIENT
@@ -247,6 +286,7 @@ async function createTicket(interaction, type, typeInfo, rolesAccess, pingRolesI
     openedAt: Date.now(), timers: [], numero, ismod,
   };
   scheduleTimers(channel, ticketData[channel.id]);
+  saveData();
 
   const embedTicket = new EmbedBuilder()
     .setTitle('🎫 Ticket Créé')
@@ -275,8 +315,27 @@ async function createTicket(interaction, type, typeInfo, rolesAccess, pingRolesI
 // ══════════════════════════════════════════
 //   BOT PRÊT
 // ══════════════════════════════════════════
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log('✅ [TICKETS] Bot connecté en tant que : ' + client.user.tag);
+
+  // Relance les timers de couleur pour les tickets non-claimés encore en mémoire
+  const guild = client.guilds.cache.get(GUILD_ID);
+  if (!guild) return;
+
+  for (const [channelId, data] of Object.entries(ticketData)) {
+    if (data.claimedBy) continue; // déjà claim, pas de timer nécessaire
+    const channel = guild.channels.cache.get(channelId);
+    if (!channel) {
+      // Le salon n'existe plus, on nettoie
+      const store = data.ismod ? userTicketsMod : userTickets;
+      delete store[data.creatorId];
+      delete ticketData[channelId];
+      continue;
+    }
+    scheduleTimers(channel, data);
+    console.log('⏱️  Timer relancé pour : ' + channel.name);
+  }
+  saveData(); // nettoie les tickets orphelins éventuels
 });
 
 // ══════════════════════════════════════════
@@ -373,6 +432,7 @@ client.on('messageCreate', async function(message) {
 
     data.claimedBy = target.id;
 
+    saveData();
     await message.delete().catch(() => {});
     await sendTransferEmbed(message.channel, message.channel.name, target.id, message.author.id, false);
     await renameChannel(message.channel, data);
@@ -394,6 +454,7 @@ client.on('messageCreate', async function(message) {
 
     data.claimedBy = target.id;
 
+    saveData();
     await message.delete().catch(() => {});
     await sendTransferEmbed(message.channel, message.channel.name, target.id, message.author.id, true);
     await renameChannel(message.channel, data);
@@ -446,6 +507,7 @@ client.on('interactionCreate', async function(interaction) {
     data.claimedBy = member.id;
     if (data.timers) data.timers.forEach(t => clearTimeout(t));
 
+    saveData();
     await renameChannel(interaction.channel, data);
     return interaction.reply({ content: '✅ Tu as réclamé ce ticket !', ephemeral: true });
   }
@@ -466,6 +528,7 @@ client.on('interactionCreate', async function(interaction) {
     data.openedAt  = Date.now();
     scheduleTimers(interaction.channel, data);
 
+    saveData();
     await renameChannel(interaction.channel, data);
     return interaction.reply({ content: '✅ Tu as retiré ta réclamation sur ce ticket.', ephemeral: true });
   }
@@ -541,6 +604,7 @@ client.on('interactionCreate', async function(interaction) {
     const store = data.ismod ? userTicketsMod : userTickets;
     delete store[data.creatorId];
     delete ticketData[interaction.channel.id];
+    saveData();
 
     setTimeout(async () => {
       await interaction.channel.delete().catch(() => {});
