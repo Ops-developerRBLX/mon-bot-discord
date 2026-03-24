@@ -127,15 +127,14 @@ function padNum(n) {
   return String(n).padStart(4, '0');
 }
 
-// Discord n'accepte pas les emojis unicode dans les noms de salons.
-// Préfixes texte : vert → jaune → orange → rouge → noir
+// Système de couleurs automatique : 🟢 → 🟡 → 🟠 → 🔴 → ⚫
 function getColorPrefix(openedAt) {
   const min = (Date.now() - openedAt) / 60000;
-  if (min < 5)             return 'vert';
-  if (min < 15)            return 'jaune';
-  if (min < 45)            return 'orange';
-  if (min < 24 * 60 + 45) return 'rouge';
-  return 'noir';
+  if (min < 5)             return '🟢';
+  if (min < 15)            return '🟡';
+  if (min < 45)            return '🟠';
+  if (min < 24 * 60 + 45) return '🔴';
+  return '⚫';
 }
 
 async function renameChannel(channel, data) {
@@ -215,7 +214,7 @@ async function createTicket(interaction, type, typeInfo, rolesAccess, pingRolesI
   ticketCounters[type]++;
   const numero = ticketCounters[type];
   const num    = padNum(numero);
-  const channelName = 'unclaim-vert-' + typeInfo.prefix + '-' + num;
+  const channelName = 'unclaim-🟢-' + typeInfo.prefix + '-' + num;
 
   const permissionOverwrites = [
     { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
