@@ -34,6 +34,16 @@ const ROLES_TRANSFER = [
   '1474133714391793784',
 ];
 
+// Rôles autorisés à utiliser !forcetransfertclaim
+const ROLES_FORCE_TRANSFER = [
+  '1432840844754292766',
+  '1433052694670475334',
+  '1432839854911127625',
+  '1432472817349431365',
+  '1474093816398221463',
+  '1474093820785332458',
+];
+
 const TICKET_TYPES = {
   verif:    { label: '✅ Aide à la vérification', prefix: 'ticket-aide-vérif',    categorie: '1433817707521904680', transcript: '1485786365726556220' },
   unban:    { label: '🔓 Aide débannissement',    prefix: 'ticket-aide-unban',    categorie: '1433829573623021770', transcript: '1485786433057722468' },
@@ -69,9 +79,9 @@ function padNum(n) {
 
 function getEmoji(openedAt) {
   const min = (Date.now() - openedAt) / 60000;
-  if (min < 5)          return '🟢';
-  if (min < 15)         return '🟡';
-  if (min < 45)         return '🟠';
+  if (min < 5)             return '🟢';
+  if (min < 15)            return '🟡';
+  if (min < 45)            return '🟠';
   if (min < 24 * 60 + 45) return '🔴';
   return '⚫';
 }
@@ -108,6 +118,58 @@ async function makeTranscript(channel) {
     const time = m.createdAt.toLocaleString('fr-FR');
     return '[' + time + '] ' + m.author.tag + ' : ' + (m.content || '[embed/fichier]');
   }).join('\n');
+}
+
+/**
+ * Envoie l'embed de transfert de propriété dans le salon du ticket.
+ * @param {TextChannel} channel   - Le salon du ticket
+ * @param {string}      ticketName - Nom affiché du ticket
+ * @param {string}      newOwnerId - ID du nouveau responsable
+ * @param {string}      initiatorId - ID de celui qui a effectué le transfert
+ * @param {boolean}     forced     - Vrai si déclenché par !forcetransfertclaim
+ */
+async function sendTransferEmbed(channel, ticketName, newOwnerId, initiatorId, forced = false) {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+  const embed = new EmbedBuilder()
+    .setTitle('🔄  Transfert de Propriété')
+    .setColor(0x5865f2)
+    .setDescription(
+      '> La prise en charge de ce ticket a été transférée avec succès.\n\u200b'
+    )
+    .addFields(
+      {
+        name: '🎫  Ticket concerné',
+        value: '`' + ticketName + '`',
+        inline: true,
+      },
+      {
+        name: '👤  Nouveau responsable',
+        value: '<@' + newOwnerId + '>',
+        inline: true,
+      },
+      {
+        name: '\u200b',
+        value: '\u200b',
+        inline: true,
+      },
+      {
+        name: '🛠️  Initié par',
+        value: '<@' + initiatorId + '>' + (forced ? '  *(transfert forcé)*' : ''),
+        inline: true,
+      },
+      {
+        name: '📅  Date & heure',
+        value: dateStr + ' à ' + timeStr,
+        inline: true,
+      },
+    )
+    .setFooter({ text: 'Support — Topia FR RP  •  Toute demande doit passer par un ticket.' })
+    .setTimestamp();
+
+  await channel.send({ embeds: [embed] });
 }
 
 // ══════════════════════════════════════════
@@ -160,7 +222,7 @@ client.on('messageCreate', async function(message) {
     return;
   }
 
-  // ── Écoute transfert : la personne mentionne quelqu'un après avoir cliqué "Transférer" ──
+  // ── Écoute transfert via bouton : la personne mentionne quelqu'un après avoir cliqué "Transférer" ──
   if (pendingTransfer[message.author.id]) {
     const channelId = pendingTransfer[message.author.id];
     if (message.channel.id !== channelId) return;
@@ -173,21 +235,10 @@ client.on('messageCreate', async function(message) {
     const data = ticketData[channelId];
     if (!data) return;
 
-    const oldClaimer = data.claimedBy ? '<@' + data.claimedBy + '>' : 'Personne';
     data.claimedBy = target.id;
 
-    const embed = new EmbedBuilder()
-      .setTitle('🔄 Transfert de Ticket')
-      .setColor(0xf59e0b)
-      .setDescription(
-        'Bonjour, <@' + data.creatorId + '>\n\n' +
-        'Votre ticket est désormais pris en charge par ' + target.toString() + '.\n\n' +
-        '*Transfert effectué depuis : ' + oldClaimer + '*'
-      )
-      .setTimestamp();
-
-    await message.channel.send({ embeds: [embed] });
     await message.delete().catch(() => {});
+    await sendTransferEmbed(message.channel, message.channel.name, target.id, message.author.id, false);
     await renameChannel(message.channel, data);
     return;
   }
@@ -197,7 +248,8 @@ client.on('messageCreate', async function(message) {
     const data = ticketData[message.channel.id];
     if (!data) return;
 
-    const hasRole = ROLES_TRANSFER.some(r => message.member.roles.cache.has(r));
+    // Vérification : uniquement les rôles ROLES_FORCE_TRANSFER
+    const hasRole = ROLES_FORCE_TRANSFER.some(r => message.member.roles.cache.has(r));
     if (!hasRole) {
       return message.reply({ content: '❌ Tu n\'as pas la permission d\'utiliser cette commande !' });
     }
@@ -205,21 +257,10 @@ client.on('messageCreate', async function(message) {
     const target = message.mentions.members.first();
     if (!target) return message.reply({ content: '❌ Mentionne un utilisateur !' });
 
-    const oldClaimer = data.claimedBy ? '<@' + data.claimedBy + '>' : 'Personne';
     data.claimedBy = target.id;
 
-    const embed = new EmbedBuilder()
-      .setTitle('🔄 Transfert de Ticket')
-      .setColor(0xf59e0b)
-      .setDescription(
-        'Bonjour, <@' + data.creatorId + '>\n\n' +
-        'Votre ticket est désormais pris en charge par ' + target.toString() + '.\n\n' +
-        '*Transfert forcé depuis : ' + oldClaimer + '*'
-      )
-      .setTimestamp();
-
-    await message.channel.send({ embeds: [embed] });
     await message.delete().catch(() => {});
+    await sendTransferEmbed(message.channel, message.channel.name, target.id, message.author.id, true);
     await renameChannel(message.channel, data);
     return;
   }
@@ -354,10 +395,21 @@ client.on('interactionCreate', async function(interaction) {
     return interaction.reply({ content: '✅ Tu as retiré ta réclamation sur ce ticket.', ephemeral: true });
   }
 
-  // ── Transfert ──
+  // ── Transfert via bouton ──
   if (customId === 'transfer_ticket') {
     if (!member.roles.cache.has(ROLE_CLAIM)) {
       return interaction.reply({ content: '❌ Tu n\'as pas la permission !', ephemeral: true });
+    }
+
+    const data = ticketData[interaction.channel.id];
+    if (!data) return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
+
+    // ✅ NOUVEAU : le membre doit avoir claim le ticket pour pouvoir le transférer
+    if (!data.claimedBy || data.claimedBy !== member.id) {
+      return interaction.reply({
+        content: '❌ Tu dois avoir **réclamé** ce ticket avant de pouvoir en transférer la propriété !',
+        ephemeral: true,
+      });
     }
 
     pendingTransfer[member.id] = interaction.channel.id;
