@@ -320,6 +320,10 @@ client.on('interactionCreate', async function(interaction) {
     const data = ticketData[interaction.channel.id];
     if (!data) return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
 
+    if (data.claimedBy) {
+      return interaction.reply({ content: '❌ Ce ticket est déjà réclamé par <@' + data.claimedBy + '> !', ephemeral: true });
+    }
+
     data.claimedBy = member.id;
     if (data.timers) data.timers.forEach(t => clearTimeout(t));
 
