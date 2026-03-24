@@ -29,7 +29,7 @@ function updateStatus() {
       {
         type: ActivityType.Custom,
         name: 'custom',
-        state: '👥 Membres sur Topia : ' + memberCount,
+        state: '👥 Nombres de Membre sur Topia : ' + memberCount,
       },
     ],
     status: 'online',
