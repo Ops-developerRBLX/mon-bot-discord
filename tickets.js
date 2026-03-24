@@ -1,6 +1,6 @@
 const {
   Client, EmbedBuilder, ButtonBuilder, ButtonStyle,
-  ActionRowBuilder, ChannelType, PermissionsBitField
+  ActionRowBuilder, ChannelType, PermissionsBitField, AttachmentBuilder
 } = require('discord.js');
 
 // ══════════════════════════════════════════
@@ -8,19 +8,9 @@ const {
 // ══════════════════════════════════════════
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = '1432472817005236326';
+const SALON_TICKET_EMBED = '1485888062423699466';
+const ROLE_CLAIM = '1432472817005236328';
 
-const SALON_TICKET_EMBED   = '1485888062423699466';
-const CATEGORIE_VERIF      = '1433817707521904680';
-
-const SALON_TRANSCRIPT = {
-  verif:    '1485786365726556220',
-  unban:    '1485786433057722468',
-  question: '1485786483423187004',
-  signal:   '1485786528364888104',
-  autre:    '1485786561227526174',
-};
-
-// Rôles ayant accès aux tickets
 const ROLES_STAFF = [
   '1432841223118262413',
   '1433053281327775845',
@@ -33,10 +23,6 @@ const ROLES_STAFF = [
   '1474093820785332458',
 ];
 
-// Rôle pouvant claim/fermer
-const ROLE_CLAIM = '1432472817005236328';
-
-// Rôles pouvant forcer le transfert
 const ROLES_TRANSFER = [
   '1432840844754292766',
   '1433052694670475334',
@@ -46,20 +32,24 @@ const ROLES_TRANSFER = [
   '1474093820785332458',
 ];
 
-// Types de tickets
 const TICKET_TYPES = {
   verif:    { label: '✅ Aide à la vérification', prefix: 'ticket-aide-vérif',    categorie: '1433817707521904680', transcript: '1485786365726556220' },
-  unban:    { label: '🔓 Aide débannissement',    prefix: 'ticket-aide-unban',    categorie: '1433817707521904680', transcript: '1485786433057722468' },
-  question: { label: '💡 Aide question',           prefix: 'ticket-aide-question', categorie: '1433817707521904680', transcript: '1485786483423187004' },
-  signal:   { label: '📢 Aide au signalement',    prefix: 'ticket-aide-signal',   categorie: '1433817707521904680', transcript: '1485786528364888104' },
-  autre:    { label: '🧩 Autre Aide',              prefix: 'ticket-aide-autre',    categorie: '1433817707521904680', transcript: '1485786561227526174' },
+  unban:    { label: '🔓 Aide débannissement',    prefix: 'ticket-aide-unban',    categorie: '1433829573623021770', transcript: '1485786433057722468' },
+  question: { label: '💡 Aide question',           prefix: 'ticket-aide-question', categorie: '1473993226406068316', transcript: '1485786483423187004' },
+  signal:   { label: '📢 Aide au signalement',    prefix: 'ticket-aide-signal',   categorie: '1453777812472332381', transcript: '1485786528364888104' },
+  autre:    { label: '🧩 Autre Aide',              prefix: 'ticket-aide-autre',    categorie: '1474726655967760577', transcript: '1485786561227526174' },
 };
 
-// Compteurs de tickets (en mémoire)
 const ticketCounters = { verif: 0, unban: 0, question: 0, signal: 0, autre: 0 };
 
-// Données des tickets ouverts : channelId -> { type, creatorId, claimedBy, openedAt, timers, numero }
+// channelId -> { type, creatorId, claimedBy, openedAt, timers, numero }
 const ticketData = {};
+
+// userId -> channelId (1 ticket par personne)
+const userTickets = {};
+
+// userId -> true (en attente de mention pour transfert)
+const pendingTransfer = {};
 
 // ══════════════════════════════════════════
 //   CLIENT
@@ -75,35 +65,29 @@ function padNum(n) {
   return String(n).padStart(4, '0');
 }
 
-function getEmoji(openedAt, claimedBy) {
-  if (claimedBy) return null; // géré séparément
-  const elapsed = Date.now() - openedAt;
-  const min = elapsed / 60000;
-  if (min < 5)   return '🟢';
-  if (min < 15)  return '🟡';
-  if (min < 45)  return '🟠';
-  if (min < 24*60+45) return '🔴';
+function getEmoji(openedAt) {
+  const min = (Date.now() - openedAt) / 60000;
+  if (min < 5)          return '🟢';
+  if (min < 15)         return '🟡';
+  if (min < 45)         return '🟠';
+  if (min < 24 * 60 + 45) return '🔴';
   return '⚫';
 }
 
 async function renameChannel(channel, data) {
   const type = TICKET_TYPES[data.type];
-  const prefix = type.prefix;
   const num = padNum(data.numero);
-  const emoji = getEmoji(data.openedAt, data.claimedBy);
+  const emoji = getEmoji(data.openedAt);
   const status = data.claimedBy ? 'claim' : 'unclaim';
-  const name = status + '-' + emoji.replace(/\uFE0F/g, '') + '-' + prefix + '-' + num;
+  const name = status + '-' + emoji + '-' + type.prefix + '-' + num;
   await channel.setName(name).catch(() => {});
 }
 
 function scheduleTimers(channel, data) {
-  // Annuler anciens timers
   if (data.timers) data.timers.forEach(t => clearTimeout(t));
   data.timers = [];
-
-  if (data.claimedBy) return; // Pas de timer si déjà claim
-
-  const times = [5*60000, 15*60000, 45*60000, (24*60+45)*60000];
+  if (data.claimedBy) return;
+  const times = [5 * 60000, 15 * 60000, 45 * 60000, (24 * 60 + 45) * 60000];
   times.forEach(ms => {
     const t = setTimeout(async () => {
       const current = ticketData[channel.id];
@@ -132,83 +116,111 @@ client.once('ready', () => {
 });
 
 // ══════════════════════════════════════════
-//   COMMANDE : !tickets
-//   Envoie l'embed de création de ticket
+//   COMMANDES TEXTE
 // ══════════════════════════════════════════
 client.on('messageCreate', async function(message) {
   if (message.author.bot) return;
-  if (message.guild.id !== GUILD_ID) return;
-  if (message.content !== '!tickets') return;
+  if (!message.guild || message.guild.id !== GUILD_ID) return;
 
-  if (message.author.id !== message.guild.ownerId) {
-    return message.reply({ content: '❌ Seul le propriétaire du serveur 👑 peut utiliser cette commande !' });
+  // ── !tickets ──
+  if (message.content === '!tickets') {
+    if (message.author.id !== message.guild.ownerId) {
+      return message.reply({ content: '❌ Seul le propriétaire du serveur 👑 peut utiliser cette commande !' });
+    }
+    await message.delete().catch(() => {});
+
+    const salon = message.guild.channels.cache.get(SALON_TICKET_EMBED);
+    if (!salon) return;
+
+    const embed = new EmbedBuilder()
+      .setTitle('🎫 Ouvrir un ticket Support')
+      .setColor(0x5865f2)
+      .setDescription(
+        'Notre équipe de support est à votre disposition pour toute demande d\'assistance.\n\n' +
+        'Veuillez sélectionner la catégorie correspondant à votre problème en cliquant sur le bouton approprié ci-dessous.\n' +
+        'Un membre de notre staff prendra en charge votre demande dans les plus brefs délais.\n\n' +
+        '> ⚠️ Merci d\'ouvrir un ticket uniquement si votre demande le nécessite.'
+      )
+      .setFooter({ text: 'Support — Topia FR RP' })
+      .setTimestamp();
+
+    const row1 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('ticket_verif').setLabel('✅ Aide à la vérification').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('ticket_unban').setLabel('🔓 Aide débannissement').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId('ticket_question').setLabel('💡 Aide question').setStyle(ButtonStyle.Secondary),
+    );
+    const row2 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('ticket_signal').setLabel('📢 Aide au signalement').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('ticket_autre').setLabel('🧩 Autre Aide').setStyle(ButtonStyle.Secondary),
+    );
+
+    await salon.send({ embeds: [embed], components: [row1, row2] });
+    return;
   }
 
-  await message.delete().catch(() => {});
+  // ── Écoute transfert : la personne mentionne quelqu'un après avoir cliqué "Transférer" ──
+  if (pendingTransfer[message.author.id]) {
+    const channelId = pendingTransfer[message.author.id];
+    if (message.channel.id !== channelId) return;
 
-  const salon = message.guild.channels.cache.get(SALON_TICKET_EMBED);
-  if (!salon) return;
+    const target = message.mentions.members.first();
+    if (!target) return;
 
-  const embed = new EmbedBuilder()
-    .setTitle('🎫 Ouvrir un ticket Support')
-    .setColor(0x5865f2)
-    .setDescription(
-      'Notre équipe de support est à votre disposition pour toute demande d\'assistance.\n\n' +
-      'Veuillez sélectionner la catégorie correspondant à votre problème en cliquant sur le bouton approprié ci-dessous.\n' +
-      'Un membre de notre staff prendra en charge votre demande dans les plus brefs délais.\n\n' +
-      '> ⚠️ Merci d\'ouvrir un ticket uniquement si votre demande le nécessite.'
-    )
-    .setFooter({ text: 'Support — Topia FR RP' })
-    .setTimestamp();
+    delete pendingTransfer[message.author.id];
 
-  const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('ticket_verif').setLabel('✅ Aide à la vérification').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('ticket_unban').setLabel('🔓 Aide débannissement').setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId('ticket_question').setLabel('💡 Aide question').setStyle(ButtonStyle.Secondary),
-  );
-  const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('ticket_signal').setLabel('📢 Aide au signalement').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('ticket_autre').setLabel('🧩 Autre Aide').setStyle(ButtonStyle.Secondary),
-  );
+    const data = ticketData[channelId];
+    if (!data) return;
 
-  await salon.send({ embeds: [embed], components: [row1, row2] });
-});
+    const oldClaimer = data.claimedBy ? '<@' + data.claimedBy + '>' : 'Personne';
+    data.claimedBy = target.id;
 
-// ══════════════════════════════════════════
-//   COMMANDE : !forcetransfertclaim @user
-// ══════════════════════════════════════════
-client.on('messageCreate', async function(message) {
-  if (message.author.bot) return;
-  if (message.guild.id !== GUILD_ID) return;
-  if (!message.content.startsWith('!forcetransfertclaim')) return;
+    const embed = new EmbedBuilder()
+      .setTitle('🔄 Transfert de Ticket')
+      .setColor(0xf59e0b)
+      .setDescription(
+        'Bonjour, <@' + data.creatorId + '>\n\n' +
+        'Votre ticket est désormais pris en charge par ' + target.toString() + '.\n\n' +
+        '*Transfert effectué depuis : ' + oldClaimer + '*'
+      )
+      .setTimestamp();
 
-  const data = ticketData[message.channel.id];
-  if (!data) return;
-
-  const hasRole = ROLES_TRANSFER.some(r => message.member.roles.cache.has(r));
-  if (!hasRole) {
-    return message.reply({ content: '❌ Tu n\'as pas la permission d\'utiliser cette commande !' });
+    await message.channel.send({ embeds: [embed] });
+    await message.delete().catch(() => {});
+    await renameChannel(message.channel, data);
+    return;
   }
 
-  const target = message.mentions.members.first();
-  if (!target) return message.reply({ content: '❌ Mentionne un utilisateur !' });
+  // ── !forcetransfertclaim @user ──
+  if (message.content.startsWith('!forcetransfertclaim')) {
+    const data = ticketData[message.channel.id];
+    if (!data) return;
 
-  const oldClaimer = data.claimedBy ? '<@' + data.claimedBy + '>' : 'Personne';
-  data.claimedBy = target.id;
+    const hasRole = ROLES_TRANSFER.some(r => message.member.roles.cache.has(r));
+    if (!hasRole) {
+      return message.reply({ content: '❌ Tu n\'as pas la permission d\'utiliser cette commande !' });
+    }
 
-  const embed = new EmbedBuilder()
-    .setTitle('🔄 Transfert de Ticket')
-    .setColor(0xf59e0b)
-    .setDescription(
-      'Bonjour, <@' + data.creatorId + '>\n\n' +
-      'Votre ticket est désormais pris en charge par ' + target.toString() + '.\n\n' +
-      '*Transfert effectué depuis : ' + oldClaimer + '*'
-    )
-    .setTimestamp();
+    const target = message.mentions.members.first();
+    if (!target) return message.reply({ content: '❌ Mentionne un utilisateur !' });
 
-  await message.channel.send({ embeds: [embed] });
-  await renameChannel(message.channel, data);
-  await message.delete().catch(() => {});
+    const oldClaimer = data.claimedBy ? '<@' + data.claimedBy + '>' : 'Personne';
+    data.claimedBy = target.id;
+
+    const embed = new EmbedBuilder()
+      .setTitle('🔄 Transfert de Ticket')
+      .setColor(0xf59e0b)
+      .setDescription(
+        'Bonjour, <@' + data.creatorId + '>\n\n' +
+        'Votre ticket est désormais pris en charge par ' + target.toString() + '.\n\n' +
+        '*Transfert forcé depuis : ' + oldClaimer + '*'
+      )
+      .setTimestamp();
+
+    await message.channel.send({ embeds: [embed] });
+    await message.delete().catch(() => {});
+    await renameChannel(message.channel, data);
+    return;
+  }
 });
 
 // ══════════════════════════════════════════
@@ -226,6 +238,18 @@ client.on('interactionCreate', async function(interaction) {
     const typeInfo = TICKET_TYPES[type];
     if (!typeInfo) return;
 
+    // 1 ticket max par personne
+    if (userTickets[member.id]) {
+      const existing = guild.channels.cache.get(userTickets[member.id]);
+      if (existing) {
+        return interaction.reply({
+          content: '❌ Tu as déjà un ticket ouvert : ' + existing.toString() + '\nFerme-le avant d\'en ouvrir un nouveau !',
+          ephemeral: true,
+        });
+      }
+      delete userTickets[member.id];
+    }
+
     await interaction.deferReply({ ephemeral: true });
 
     ticketCounters[type]++;
@@ -233,18 +257,13 @@ client.on('interactionCreate', async function(interaction) {
     const num = padNum(numero);
     const channelName = '🟢-' + typeInfo.prefix + '-' + num;
 
-    // Permissions du salon
     const permissionOverwrites = [
-      {
-        id: guild.id,
-        deny: [PermissionsBitField.Flags.ViewChannel],
-      },
+      { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
       {
         id: member.id,
         allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
       },
     ];
-
     ROLES_STAFF.forEach(roleId => {
       permissionOverwrites.push({
         id: roleId,
@@ -252,27 +271,24 @@ client.on('interactionCreate', async function(interaction) {
       });
     });
 
-    // Créer le salon
     const channel = await guild.channels.create({
       name: channelName,
       type: ChannelType.GuildText,
       parent: typeInfo.categorie,
       permissionOverwrites,
-    }).catch(e => { console.error('❌ Erreur création salon : ' + e.message); return null; });
+    }).catch(e => { console.error('❌ ' + e.message); return null; });
 
     if (!channel) {
       return interaction.editReply({ content: '❌ Impossible de créer le ticket. Contacte un administrateur.' });
     }
 
-    // Enregistrer les données
+    userTickets[member.id] = channel.id;
     ticketData[channel.id] = {
       type, creatorId: member.id, claimedBy: null,
       openedAt: Date.now(), timers: [], numero,
     };
-
     scheduleTimers(channel, ticketData[channel.id]);
 
-    // Embed dans le ticket
     const embedTicket = new EmbedBuilder()
       .setTitle('🎫 Ticket Créé')
       .setColor(0x22c55e)
@@ -293,7 +309,6 @@ client.on('interactionCreate', async function(interaction) {
     );
 
     await channel.send({ content: '<@' + member.id + '>', embeds: [embedTicket], components: [rowTicket] });
-
     return interaction.editReply({ content: '✅ Ton ticket a été créé : ' + channel.toString() });
   }
 
@@ -309,8 +324,7 @@ client.on('interactionCreate', async function(interaction) {
     if (data.timers) data.timers.forEach(t => clearTimeout(t));
 
     await renameChannel(interaction.channel, data);
-    await interaction.reply({ content: '✅ Tu as réclamé ce ticket !' });
-    return;
+    return interaction.reply({ content: '✅ Tu as réclamé ce ticket !', ephemeral: true });
   }
 
   // ── Unclaim ──
@@ -321,13 +335,16 @@ client.on('interactionCreate', async function(interaction) {
     const data = ticketData[interaction.channel.id];
     if (!data) return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
 
+    if (!data.claimedBy || data.claimedBy !== member.id) {
+      return interaction.reply({ content: '❌ Tu n\'as pas réclamé ce ticket !', ephemeral: true });
+    }
+
     data.claimedBy = null;
     data.openedAt = Date.now();
     scheduleTimers(interaction.channel, data);
 
     await renameChannel(interaction.channel, data);
-    await interaction.reply({ content: '✅ Tu as retiré ta réclamation sur ce ticket.' });
-    return;
+    return interaction.reply({ content: '✅ Tu as retiré ta réclamation sur ce ticket.', ephemeral: true });
   }
 
   // ── Transfert ──
@@ -335,8 +352,11 @@ client.on('interactionCreate', async function(interaction) {
     if (!member.roles.cache.has(ROLE_CLAIM)) {
       return interaction.reply({ content: '❌ Tu n\'as pas la permission !', ephemeral: true });
     }
+
+    pendingTransfer[member.id] = interaction.channel.id;
+
     return interaction.reply({
-      content: '📩 Pour transférer ce ticket, utilise la commande :\n`!forcetransfertclaim @utilisateur`',
+      content: '📩 Mentionne la personne à qui tu veux transférer ce ticket (ex: @Utilisateur) :',
       ephemeral: true,
     });
   }
@@ -348,7 +368,6 @@ client.on('interactionCreate', async function(interaction) {
 
     await interaction.reply({ content: '🔒 Fermeture du ticket en cours...' });
 
-    // Transcript
     const transcript = await makeTranscript(interaction.channel);
     const typeInfo = TICKET_TYPES[data.type];
     const transcriptSalon = interaction.guild.channels.cache.get(typeInfo.transcript);
@@ -359,28 +378,25 @@ client.on('interactionCreate', async function(interaction) {
       .setDescription('**Créé par :** <@' + data.creatorId + '>\n**Fermé par :** ' + member.toString())
       .setTimestamp();
 
-    const { AttachmentBuilder } = require('discord.js');
-    const buffer = Buffer.from(transcript, 'utf-8');
-    const attachment = new AttachmentBuilder(buffer, { name: interaction.channel.name + '.txt' });
+    const buffer1 = Buffer.from(transcript, 'utf-8');
+    const attachment1 = new AttachmentBuilder(buffer1, { name: interaction.channel.name + '.txt' });
 
-    // Envoyer dans le salon transcript
     if (transcriptSalon) {
-      await transcriptSalon.send({ embeds: [embedTranscript], files: [attachment] }).catch(() => {});
+      await transcriptSalon.send({ embeds: [embedTranscript], files: [attachment1] }).catch(() => {});
     }
 
-    // Envoyer en MP au créateur
     try {
       const creator = await interaction.guild.members.fetch(data.creatorId);
       const buffer2 = Buffer.from(transcript, 'utf-8');
       const attachment2 = new AttachmentBuilder(buffer2, { name: interaction.channel.name + '.txt' });
       await creator.send({
-        content: '📋 Voici le transcript de ton ticket **' + interaction.channel.name + '** :',
+        content: '👋 ' + creator.toString() + '\n\nBonjour ! Ton ticket **' + interaction.channel.name + '** sur **Topia FR RP** vient d\'être clôturé.\nTu trouveras ci-joint le transcript complet de votre échange pour en garder une trace.\n\nNous espérons avoir pu répondre à ta demande dans les meilleures conditions. N\'hésite pas à revenir vers nous si tu as besoin d\'aide. Bonne continuation et à bientôt ! 🌟',
         files: [attachment2],
       }).catch(() => {});
-    } catch (e) { console.error('❌ MP impossible : ' + e.message); }
+    } catch (e) { console.error('❌ MP : ' + e.message); }
 
-    // Annuler timers et supprimer
     if (data.timers) data.timers.forEach(t => clearTimeout(t));
+    delete userTickets[data.creatorId];
     delete ticketData[interaction.channel.id];
 
     setTimeout(async () => {
