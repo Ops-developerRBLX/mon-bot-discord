@@ -310,7 +310,8 @@ client.on('interactionCreate', async function(interaction) {
       new ButtonBuilder().setCustomId('close_ticket').setLabel('❌ Fermer ce ticket').setStyle(ButtonStyle.Danger),
     );
 
-    await channel.send({ content: '<@' + member.id + '>', embeds: [embedTicket], components: [rowTicket] });
+    const pingRoles = '<@&1432841223118262413> <@&1433053281327775845> <@&1432840939658940456>';
+    await channel.send({ content: '<@' + member.id + '> ' + pingRoles, embeds: [embedTicket], components: [rowTicket] });
     return interaction.editReply({ content: '✅ Ton ticket a été créé : ' + channel.toString() });
   }
 
@@ -372,12 +373,12 @@ client.on('interactionCreate', async function(interaction) {
     const data = ticketData[interaction.channel.id];
     if (!data) return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
 
-    const canClose = 
-      (data.claimedBy && data.claimedBy === member.id) ||
+    const canClose =
+      data.claimedBy === member.id ||
       ROLES_TRANSFER.some(r => member.roles.cache.has(r));
 
     if (!canClose) {
-      return interaction.reply({ content: '❌ Seul le staff ayant les permissions ou la personne ayant réclamé ce ticket peut le fermer !', ephemeral: true });
+      return interaction.reply({ content: '❌ Seul la personne ayant réclamé ce ticket ou le staff autorisé peut le fermer !', ephemeral: true });
     }
 
     await interaction.reply({ content: '🔒 Fermeture du ticket en cours...' });
