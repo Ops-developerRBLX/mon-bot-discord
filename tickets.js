@@ -45,7 +45,7 @@ const ROLES_FORCE_TRANSFER = [
 ];
 
 const TICKET_TYPES = {
-  verif:    { label: '✅ Aide à la vérification', prefix: 'ticket-aide-vérif',    categorie: '1433817707521904680', transcript: '1485786365726556220' },
+  verif:    { label: '✅ Aide à la vérification', prefix: 'ticket-aide-vérif',    categorie: '1486044912762749098', transcript: '1485786365726556220' },
   unban:    { label: '🔓 Aide débannissement',    prefix: 'ticket-aide-unban',    categorie: '1433829573623021770', transcript: '1485786433057722468' },
   question: { label: '💡 Aide question',           prefix: 'ticket-aide-question', categorie: '1473993226406068316', transcript: '1485786483423187004' },
   signal:   { label: '📢 Aide au signalement',    prefix: 'ticket-aide-signal',   categorie: '1453777812472332381', transcript: '1485786528364888104' },
