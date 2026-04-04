@@ -82,8 +82,12 @@ async function renameChannel(channel, data) {
   const type = CANDID_TYPES[data.type];
   const num = padNum(data.numero);
   const emoji = getEmoji(data.openedAt);
-  const status = data.claimedBy ? 'claim' : 'unclaim';
-  const name = status + '-' + emoji + '-' + type.prefix + '-' + num;
+  let name;
+  if (data.claimedBy) {
+    name = 'claim-' + emoji + '-' + type.prefix + '-' + num;
+  } else {
+    name = emoji + '-' + type.prefix + '-' + num;
+  }
   await channel.setName(name).catch(() => {});
 }
 
@@ -260,6 +264,7 @@ client.on('interactionCreate', async function(interaction) {
     const numero = candidCounters[type];
     const num = padNum(numero);
     const channelName = '🟢-' + typeInfo.prefix + '-' + num;
+    // nom initial sans claim/unclaim
 
     const permissionOverwrites = [
       { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
@@ -321,7 +326,7 @@ client.on('interactionCreate', async function(interaction) {
       new ButtonBuilder().setCustomId('close_candid').setLabel('❌ Fermer la candidature').setStyle(ButtonStyle.Danger),
     );
 
-    const pingRoles = '<@&1432841223118262413> <@&1433053281327775845> <@&1432840939658940456> ' + typeInfo.roles.map(r => '<@&' + r + '>').join(' ');
+    const pingRoles = typeInfo.roles.map(r => '<@&' + r + '>').join(' ');
     await channel.send({ content: '<@' + member.id + '> ' + pingRoles, embeds: [embedCandid], components: [rowCandid] });
 
     return interaction.editReply({ content: '✅ Ta candidature a été créée : ' + channel.toString() });
