@@ -11,9 +11,8 @@ const GUILD_ID = '1432472817005236326';
 const SALON_CANDID_EMBED = '1485781664507363508';
 const ROLE_CLAIM = '1432472817005236328';
 
-// Rôles staff ayant accès aux candidatures (sans les Supports)
+// Rôles staff ayant accès aux candidatures (sans les Supports et sans Gérant Support)
 const ROLES_STAFF = [
-  '1432840844754292766',
   '1433052694670475334',
   '1432839854911127625',
   '1432472817349431365',
@@ -23,7 +22,6 @@ const ROLES_STAFF = [
 ];
 
 const ROLES_CLOSE = [
-  '1432840844754292766',
   '1433052694670475334',
   '1432839854911127625',
   '1432472817349431365',
