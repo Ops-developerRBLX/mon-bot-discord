@@ -35,13 +35,13 @@ const ROLES_CLOSE = [
 ];
 
 const CANDID_TYPES = {
-  rp:      { label: 'Candidature Accès Rôle Play', prefix: 'candid-rp',      categorie: '1489726701721354360', logs: '1489726293661581444' },
-  beta:    { label: 'Candidature Bêta Testers',    prefix: 'candid-testers',  categorie: '1489726875470266479', logs: '1489726328490954983' },
-  video:   { label: 'Candidature Vidéaste',         prefix: 'candid-video',    categorie: '1489726939559362663', logs: '1489726369100468335' },
-  dev:     { label: 'Candidature Développeur',      prefix: 'candid-dev',      categorie: '1489726997667250466', logs: '1489726396942258320' },
-  agentRP: { label: 'Candidature Agent RP',         prefix: 'candid-a-rp',    categorie: '1489727087442001972', logs: '1489726430752538634' },
-  support: { label: 'Candidature Support',          prefix: 'candid-support',  categorie: '1489727152114110514', logs: '1489726464541720668' },
-  modo:    { label: 'Candidature Modérateur',       prefix: 'candid-modo',     categorie: '1489727210867654727', logs: '1489726531512045710' },
+  rp:      { label: 'Candidature Accès Rôle Play', prefix: 'candid-rp',      categorie: '1489726701721354360', logs: '1489726293661581444', roles: ['1474714298654920867', '1474488088662380577'] },
+  beta:    { label: 'Candidature Bêta Testers',    prefix: 'candid-testers',  categorie: '1489726875470266479', logs: '1489726328490954983', roles: ['1474730045632151742'] },
+  video:   { label: 'Candidature Vidéaste',         prefix: 'candid-video',    categorie: '1489726939559362663', logs: '1489726369100468335', roles: ['1474857518932164698'] },
+  dev:     { label: 'Candidature Développeur',      prefix: 'candid-dev',      categorie: '1489726997667250466', logs: '1489726396942258320', roles: ['1475553226098217104'] },
+  agentRP: { label: 'Candidature Agent RP',         prefix: 'candid-a-rp',    categorie: '1489727087442001972', logs: '1489726430752538634', roles: ['1474714298654920867'] },
+  support: { label: 'Candidature Support',          prefix: 'candid-support',  categorie: '1489727152114110514', logs: '1489726464541720668', roles: ['1432840844754292766'] },
+  modo:    { label: 'Candidature Modérateur',       prefix: 'candid-modo',     categorie: '1489727210867654727', logs: '1489726531512045710', roles: ['1432472817349431361'] },
 };
 
 const candidCounters = { rp: 0, beta: 0, video: 0, dev: 0, agentRP: 0, support: 0, modo: 0 };
@@ -274,6 +274,14 @@ client.on('interactionCreate', async function(interaction) {
         allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
       });
     });
+    typeInfo.roles.forEach(roleId => {
+      if (!ROLES_STAFF.includes(roleId)) {
+        permissionOverwrites.push({
+          id: roleId,
+          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
+        });
+      }
+    });
 
     const channel = await guild.channels.create({
       name: channelName,
@@ -313,7 +321,7 @@ client.on('interactionCreate', async function(interaction) {
       new ButtonBuilder().setCustomId('close_candid').setLabel('❌ Fermer la candidature').setStyle(ButtonStyle.Danger),
     );
 
-    const pingRoles = '<@&1432841223118262413> <@&1433053281327775845> <@&1432840939658940456>';
+    const pingRoles = '<@&1432841223118262413> <@&1433053281327775845> <@&1432840939658940456> ' + typeInfo.roles.map(r => '<@&' + r + '>').join(' ');
     await channel.send({ content: '<@' + member.id + '> ' + pingRoles, embeds: [embedCandid], components: [rowCandid] });
 
     return interaction.editReply({ content: '✅ Ta candidature a été créée : ' + channel.toString() });
